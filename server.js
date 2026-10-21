@@ -1,10 +1,42 @@
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
+const fs = require('fs/promises');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
 require('dotenv').config();
+
+const uploadDirectory = path.join(__dirname, 'uploads');
+const allowedImageTypes = {
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/webp': ['.webp']
+};
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDirectory),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `issue-${Date.now()}-${crypto.randomUUID()}${ext}`);
+  }
+});
+
+function fileFilter(req, file, cb) {
+  const allowedExtensions = allowedImageTypes[file.mimetype];
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (allowedExtensions && allowedExtensions.includes(ext)) return cb(null, true);
+  const error = new Error('Only JPEG, PNG, or WebP images are allowed.');
+  error.code = 'INVALID_IMAGE_TYPE';
+  cb(error);
+}
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 2 * 1024 * 1024, files: 1, fields: 4, parts: 5, fieldSize: 1000 },
+  fileFilter
+});
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -12,6 +44,7 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
 const DB_NAME = 'campus_issue_tracker';
 const client = new MongoClient(MONGO_URI);
 let users;
+let issues;
 
 if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
   throw new Error('Set SESSION_SECRET to a random value with at least 32 characters in your .env file.');
@@ -34,6 +67,14 @@ function clean(value) {
 function requireLogin(req, res, next) {
   if (!req.session.user) return res.status(401).json({ message: 'Please log in first.' });
   next();
+}
+
+function requireRole(role) {
+  return (req, res, next) => {
+    if (!req.session.user) return res.status(401).json({ message: 'Please log in first.' });
+    if (req.session.user.role !== role) return res.status(403).json({ message: 'You do not have permission for this action.' });
+    next();
+  };
 }
 
 function validEmail(email) {
@@ -149,13 +190,121 @@ app.patch('/api/auth/password', requireLogin, async (req, res) => {
   }
 });
 
+const issueCategories = ['Classroom', 'IT / Internet', 'Hostel / Facilities', 'Cafeteria', 'Other'];
+
+async function removeUploadedFile(file) {
+  if (!file) return;
+  try {
+    await fs.unlink(file.path);
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.error('Issue photo cleanup error:', error.message);
+  }
+}
+
+async function imageMatchesFile(file) {
+  const handle = await fs.open(file.path, 'r');
+  try {
+    const header = Buffer.alloc(12);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    const bytes = header.subarray(0, bytesRead);
+    let detectedType = '';
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+      detectedType = 'image/jpeg';
+    } else if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+      detectedType = 'image/png';
+    } else if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') {
+      detectedType = 'image/webp';
+    }
+    const ext = path.extname(file.originalname).toLowerCase();
+    return detectedType === file.mimetype && allowedImageTypes[detectedType].includes(ext);
+  } finally {
+    await handle.close();
+  }
+}
+
+app.get('/api/student/issues', requireRole('student'), async (req, res) => {
+  try {
+    const records = await issues.find({ studentId: req.session.user.id }).sort({ createdAt: -1 }).toArray();
+    res.json(records.map((issue) => ({
+      _id: issue._id.toString(),
+      title: issue.title,
+      category: issue.category,
+      location: issue.location,
+      description: issue.description,
+      status: issue.status,
+      imageUrl: issue.imageUrl,
+      createdAt: issue.createdAt
+    })));
+  } catch (error) {
+    console.error('Student issue list error:', error.message);
+    res.status(500).json({ message: 'Could not load your reports.' });
+  }
+});
+
+app.post('/api/student/issues', requireRole('student'), (req, res) => {
+  upload.single('image')(req, res, async (uploadError) => {
+    if (uploadError) {
+      if (uploadError.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'Image must be 2 MB or smaller.' });
+      }
+      if (uploadError.code === 'INVALID_IMAGE_TYPE') {
+        return res.status(400).json({ message: uploadError.message });
+      }
+      if (uploadError instanceof multer.MulterError) {
+        return res.status(400).json({ message: 'Submit one photo and the required report fields.' });
+      }
+      console.error('Issue upload error:', uploadError.message);
+      return res.status(500).json({ message: 'Could not upload the photo.' });
+    }
+
+    let savedImage = false;
+    try {
+      const body = req.body || {};
+      const title = clean(body.title);
+      const category = clean(body.category);
+      const location = clean(body.location);
+      const description = clean(body.description);
+      if (title.length < 3 || title.length > 100) return res.status(400).json({ message: 'Title must be between 3 and 100 characters.' });
+      if (!issueCategories.includes(category)) return res.status(400).json({ message: 'Choose a valid category.' });
+      if (location.length < 2 || location.length > 100) return res.status(400).json({ message: 'Location must be between 2 and 100 characters.' });
+      if (description.length < 10 || description.length > 1000) return res.status(400).json({ message: 'Description must be between 10 and 1000 characters.' });
+      if (req.file && !(await imageMatchesFile(req.file))) {
+        return res.status(400).json({ message: 'The photo must be a valid JPEG, PNG, or WebP image.' });
+      }
+
+      const issue = {
+        title,
+        category,
+        location,
+        description,
+        status: 'Reported',
+        imageUrl: req.file ? `uploads/${req.file.filename}` : null,
+        studentId: req.session.user.id,
+        studentName: req.session.user.name,
+        createdAt: new Date()
+      };
+      const result = await issues.insertOne(issue);
+      savedImage = Boolean(req.file);
+      res.status(201).json({ issue: { ...issue, _id: result.insertedId.toString() } });
+    } catch (error) {
+      console.error('Issue create error:', error.message);
+      res.status(500).json({ message: 'Could not save this report.' });
+    } finally {
+      if (!savedImage) await removeUploadedFile(req.file);
+    }
+  });
+});
+
+app.get('/student.html', requireRole('student'), (req, res) => res.sendFile(path.join(__dirname, 'student.html')));
 app.get('/profile.html', (req, res) => { if (!req.session.user) return res.redirect('/'); res.sendFile(path.join(__dirname, 'profile.html')); });
 app.use(express.static(__dirname));
 
 async function start() {
+  await fs.mkdir(uploadDirectory, { recursive: true });
   await client.connect();
   const db = client.db(DB_NAME);
   users = db.collection('users');
+  issues = db.collection('issues');
   await users.createIndex({ email: 1 }, { unique: true });
 
   // Create the admin account from local .env values; admins cannot self-register.

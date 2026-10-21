@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Campus Issue Tracker - Student Workspace</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="student">
+  <header class="topbar">
+    <a class="brand" href="student.html">Campus Issue Tracker</a>
+    <div class="topbar-right"><span id="welcomeName" class="muted"></span><a class="button outline" href="profile.html">My Profile</a><button class="button outline" data-logout>Log out</button></div>
+  </header>
+  <main class="page-wrap">
+    <section class="page-heading"><div><p class="eyebrow">Student workspace</p><h1>Campus issues</h1><p class="muted">Report a problem and follow updates from the campus team.</p></div></section>
+    <div id="message" class="message" role="status" aria-live="polite"></div>
+    <div class="student-layout">
+      <section class="panel">
+        <h2>Report a problem</h2>
+        <form id="issueForm" novalidate>
+          <label for="title">Issue title</label>
+          <input id="title" name="title" type="text" minlength="3" maxlength="100" placeholder="e.g. Projector not working" required>
+          <label for="category">Category</label>
+          <select id="category" name="category" required>
+            <option value="">Choose a category</option>
+            <option value="Classroom">Classroom</option>
+            <option value="IT / Internet">IT / Internet</option>
+            <option value="Hostel / Facilities">Hostel / Facilities</option>
+            <option value="Cafeteria">Cafeteria</option>
+            <option value="Other">Other</option>
+          </select>
+          <label for="location">Campus location</label>
+          <input id="location" name="location" type="text" minlength="2" maxlength="100" placeholder="Building and room" required>
+          <label for="description">Description</label>
+          <textarea id="description" name="description" minlength="10" maxlength="1000" rows="4" placeholder="Explain what happened and where." required></textarea>
+          <label for="image">Photo attachment <span class="muted">(optional)</span></label>
+          <input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp">
+          <p class="field-hint">JPEG, PNG, or WebP up to 2 MB.</p>
+          <button class="button primary full" type="submit">Submit report</button>
+        </form>
+      </section>
+      <section class="panel">
+        <div class="section-title"><div><h2>My reported issues</h2><p class="muted">Status updates appear here.</p></div><button class="button outline" id="refreshIssues" type="button">Refresh</button></div>
+        <div id="issuesList" class="issue-list"><p class="muted">Loading your reports…</p></div>
+      </section>
+    </div>
+  </main>
+  <script src="dashboard.js"></script>
+</body>
+</html>
