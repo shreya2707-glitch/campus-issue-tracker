@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Campus Issue Tracker - Sign In</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="auth-page" data-page="login">
+  <main class="auth-card">
+    <a class="brand" href="/">Campus Issue Tracker</a>
+    <p class="eyebrow">A better campus starts with a report</p>
+    <h1>Welcome back</h1>
+    <p class="muted">Sign in to continue to your campus workspace.</p>
+    <div id="message" class="message" role="status" aria-live="polite"></div>
+    <form id="loginForm" novalidate>
+      <label for="email">Email address</label>
+      <input id="email" name="email" type="email" autocomplete="username" maxlength="120" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button class="button primary full" type="submit">Sign in</button>
+    </form>
+    <p class="auth-switch">New student? <a href="signup.html">Create an account</a></p>
+  </main>
+  <script src="auth.js"></script>
+</body>
+</html>

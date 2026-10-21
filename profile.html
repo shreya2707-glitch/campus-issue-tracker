@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Campus Issue Tracker - Profile</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="profile">
+  <header class="topbar">
+    <a class="brand" href="/" id="brandLink">Campus Issue Tracker</a>
+    <div class="topbar-right">
+      <span id="roleBadge" class="role-pill">User</span>
+      <span id="welcomeName" class="muted"></span>
+      <a class="button outline" id="backLink" href="/">Back to Workspace</a>
+      <button class="button outline" data-logout>Log out</button>
+    </div>
+  </header>
+  <main class="page-wrap">
+    <section class="page-heading">
+      <div>
+        <p class="eyebrow">Account Settings</p>
+        <h1>User Profile</h1>
+        <p class="muted">Manage your personal information and account security.</p>
+      </div>
+    </section>
+    <div id="message" class="message" role="status" aria-live="polite"></div>
+    <div class="profile-layout">
+      <section class="panel">
+        <h2>Profile details</h2>
+        <form id="nameForm" novalidate>
+          <label for="profileEmail">Email address</label>
+          <input id="profileEmail" type="email" readonly>
+          <p class="field-hint">Email address cannot be changed.</p>
+          <label for="fullName">Full name</label>
+          <input id="fullName" name="name" type="text" minlength="2" maxlength="60" placeholder="Enter your full name" required>
+          <p class="field-hint">Between 2 and 60 characters.</p>
+          <button class="button primary full" type="submit">Save changes</button>
+        </form>
+      </section>
+      <section class="panel">
+        <h2>Change password</h2>
+        <form id="passwordForm" novalidate>
+          <label for="currentPassword">Current password</label>
+          <input id="currentPassword" name="currentPassword" type="password" placeholder="Enter current password" required>
+          <label for="newPassword">New password</label>
+          <input id="newPassword" name="newPassword" type="password" minlength="8" maxlength="72" placeholder="At least 8 characters" required>
+          <p class="field-hint">Must be at least 8 characters.</p>
+          <label for="confirmPassword">Confirm new password</label>
+          <input id="confirmPassword" name="confirmPassword" type="password" minlength="8" maxlength="72" placeholder="Re-type new password" required>
+          <button class="button primary full" type="submit">Update password</button>
+        </form>
+      </section>
+    </div>
+  </main>
+  <script src="profile.js"></script>
+</body>
+</html>
