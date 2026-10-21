@@ -295,8 +295,105 @@ app.post('/api/student/issues', requireRole('student'), (req, res) => {
   });
 });
 
-app.get('/student.html', requireRole('student'), (req, res) => res.sendFile(path.join(__dirname, 'student.html')));
-app.get('/profile.html', (req, res) => { if (!req.session.user) return res.redirect('/'); res.sendFile(path.join(__dirname, 'profile.html')); });
+// Administrator routes: view reports, update status, and view status counts
+app.get('/api/admin/issues', requireRole('admin'), async (req, res) => {
+  try {
+    const records = await issues.find().sort({ createdAt: -1 }).toArray();
+    res.json(records.map((issue) => ({
+      _id: issue._id.toString(),
+      title: issue.title,
+      category: issue.category,
+      location: issue.location,
+      description: issue.description,
+      status: issue.status,
+      imageUrl: issue.imageUrl,
+      studentId: issue.studentId,
+      studentName: issue.studentName || 'Student',
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt
+    })));
+  } catch (error) {
+    console.error('Admin issue list error:', error.message);
+    res.status(500).json({ message: 'Could not load issues.' });
+  }
+});
+
+app.get('/api/issues', requireRole('admin'), async (req, res) => {
+  try {
+    const records = await issues.find().sort({ createdAt: -1 }).toArray();
+    res.json(records.map((issue) => ({
+      _id: issue._id.toString(),
+      title: issue.title,
+      category: issue.category,
+      location: issue.location,
+      description: issue.description,
+      status: issue.status,
+      imageUrl: issue.imageUrl,
+      studentId: issue.studentId,
+      studentName: issue.studentName || 'Student',
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt
+    })));
+  } catch (error) {
+    console.error('Issue list error:', error.message);
+    res.status(500).json({ message: 'Could not load issues.' });
+  }
+});
+
+async function updateIssueStatus(req, res) {
+  try {
+    const { id } = req.params;
+    const status = req.body && req.body.status;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ message: 'Invalid issue ID.' });
+    if (!['Reported', 'In Progress', 'Resolved'].includes(status)) {
+      return res.status(400).json({ message: 'Choose a valid status.' });
+    }
+    const result = await issues.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status, updatedAt: new Date() } }
+    );
+    if (!result.matchedCount) return res.status(404).json({ message: 'Issue not found.' });
+    res.json({ message: 'Issue status updated.' });
+  } catch (error) {
+    console.error('Issue status update error:', error.message);
+    res.status(500).json({ message: 'Could not update issue status.' });
+  }
+}
+
+app.patch('/api/admin/issues/:id/status', requireRole('admin'), updateIssueStatus);
+app.patch('/api/issues/:id/status', requireRole('admin'), updateIssueStatus);
+
+app.get('/api/admin/stats', requireRole('admin'), async (req, res) => {
+  try {
+    const total = await issues.countDocuments();
+    const reported = await issues.countDocuments({ status: 'Reported' });
+    const inProgress = await issues.countDocuments({ status: 'In Progress' });
+    const resolved = await issues.countDocuments({ status: 'Resolved' });
+    res.json({ total, reported, inProgress, resolved });
+  } catch (error) {
+    console.error('Admin stats error:', error.message);
+    res.status(500).json({ message: 'Could not load stats.' });
+  }
+});
+
+app.get('/profile.html', (req, res) => {
+  if (!req.session.user) return res.redirect('/');
+  res.sendFile(path.join(__dirname, 'profile.html'));
+});
+
+app.get('/student.html', (req, res) => {
+  if (!req.session.user) return res.redirect('/');
+  if (req.session.user.role !== 'student') return res.redirect('/admin.html');
+  res.sendFile(path.join(__dirname, 'student.html'));
+});
+
+app.get('/admin.html', (req, res) => {
+  if (!req.session.user) return res.redirect('/');
+  if (req.session.user.role !== 'admin') return res.redirect('/student.html');
+  res.sendFile(path.join(__dirname, 'admin.html'));
+});
+
+app.use('/uploads', express.static(uploadDirectory));
 app.use(express.static(__dirname));
 
 async function start() {
@@ -306,6 +403,14 @@ async function start() {
   users = db.collection('users');
   issues = db.collection('issues');
   await users.createIndex({ email: 1 }, { unique: true });
+
+  if (await issues.countDocuments() === 0) {
+    await issues.insertMany([
+      { title: 'Projector not working in Room 204', category: 'Classroom', location: 'Academic Block B', description: 'The HDMI cable is broken and the display turns off repeatedly.', status: 'In Progress', studentName: 'Demo Student', createdAt: new Date() },
+      { title: 'Wi-Fi disconnected in Central Library', category: 'IT / Internet', location: 'Library 2nd Floor', description: 'Students cannot access the internet in the quiet study area.', status: 'Reported', studentName: 'Demo Student', createdAt: new Date() },
+      { title: 'Water cooler leaking near stairs', category: 'Hostel / Facilities', location: 'Hostel 1 Ground Floor', description: 'Water is spilling onto the corridor floor and making it slippery.', status: 'Resolved', studentName: 'Demo Student', createdAt: new Date() }
+    ]);
+  }
 
   // Create the admin account from local .env values; admins cannot self-register.
   const adminEmail = clean(process.env.ADMIN_EMAIL).toLowerCase();

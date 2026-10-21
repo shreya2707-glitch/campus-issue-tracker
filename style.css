@@ -103,6 +103,6 @@ textarea { resize: vertical; }
 
 .profile-layout { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr); align-items: start; gap: 20px; }
 input[readonly] { background: #f3f8f7; color: var(--muted); cursor: not-allowed; }
-media (max-width: 780px) {
+@media (max-width: 780px) {
   .profile-layout { grid-template-columns: 1fr; }
 }

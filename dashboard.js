@@ -1,3 +1,4 @@
+const pageRole = document.body.dataset.page;
 const messageBox = document.getElementById('message');
 const issueList = document.getElementById('issuesList');
 const issueForm = document.getElementById('issueForm');
@@ -5,6 +6,7 @@ const maximumImageSize = 2 * 1024 * 1024;
 const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
 
 function showMessage(text, kind = 'error') {
+  if (!messageBox) return;
   messageBox.textContent = text;
   messageBox.className = text ? `message ${kind}` : 'message';
 }
@@ -24,25 +26,32 @@ async function checkAccess() {
   }
   if (!response.ok) throw new Error('Could not check your sign-in status.');
   const { user } = await response.json();
-  if (user.role !== 'student') {
-    window.location.replace('/');
+  if (pageRole && user.role !== pageRole) {
+    window.location.replace(user.role === 'admin' ? '/admin.html' : '/student.html');
     return false;
   }
-  document.getElementById('welcomeName').textContent = `Hello, ${user.name}`;
+  const welcome = document.getElementById('welcomeName');
+  if (welcome) welcome.textContent = `Hello, ${user.name}`;
   return true;
 }
 
-document.querySelector('[data-logout]').addEventListener('click', async () => {
-  try {
-    const response = await fetch('/api/auth/logout', { method: 'POST' });
-    if (!response.ok) throw new Error('Could not log out. Please try again.');
-    window.location.replace('/');
-  } catch (error) {
-    showMessage(error.message || 'Could not log out. Please try again.');
-  }
-});
+const logoutButton = document.querySelector('[data-logout]');
+if (logoutButton) {
+  logoutButton.addEventListener('click', async () => {
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' });
+      if (!response.ok) throw new Error('Could not log out. Please try again.');
+      window.location.replace('/');
+    } catch (error) {
+      showMessage(error.message || 'Could not log out. Please try again.');
+    }
+  });
+}
 
-document.getElementById('refreshIssues').addEventListener('click', loadIssues);
+const refreshButton = document.getElementById('refreshIssues');
+if (refreshButton) {
+  refreshButton.addEventListener('click', loadIssues);
+}
 
 function makeIssueCard(issue) {
   const card = element('article', 'issue-card');
@@ -58,31 +67,86 @@ function makeIssueCard(issue) {
     const date = new Date(issue.createdAt);
     if (!Number.isNaN(date.getTime())) card.append(element('p', 'issue-meta', `Submitted ${date.toLocaleString()}`));
   }
-  if (typeof issue.imageUrl === 'string' && issue.imageUrl.startsWith('uploads/')) {
+  if (typeof issue.imageUrl === 'string' && (issue.imageUrl.startsWith('uploads/') || issue.imageUrl.startsWith('/uploads/'))) {
     const image = document.createElement('img');
-    image.src = `/${issue.imageUrl}`;
+    image.src = issue.imageUrl.startsWith('/') ? issue.imageUrl : `/${issue.imageUrl}`;
     image.alt = `Photo attached to ${issue.title}`;
     image.className = 'issue-image';
     card.append(image);
   }
+  if (pageRole === 'admin') {
+    card.append(element('p', 'issue-reporter', `Reported by ${issue.studentName || 'Student'}`));
+    const controls = element('div', 'status-controls');
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', `Status for ${issue.title}`);
+    for (const optionStatus of ['Reported', 'In Progress', 'Resolved']) {
+      const option = element('option', '', optionStatus);
+      option.value = optionStatus;
+      option.selected = optionStatus === status;
+      select.append(option);
+    }
+    const saveButton = element('button', 'button small-button', 'Save status');
+    saveButton.type = 'button';
+    saveButton.addEventListener('click', () => updateStatus(issue._id, select.value, saveButton));
+    controls.append(select, saveButton);
+    card.append(controls);
+  }
   return card;
 }
 
-async function loadIssues() {
-  issueList.replaceChildren(element('p', 'muted', 'Loading your reports…'));
+function updateStats(issues) {
+  const total = document.getElementById('totalCount');
+  const reported = document.getElementById('reportedCount');
+  const progress = document.getElementById('progressCount');
+  const resolved = document.getElementById('resolvedCount');
+  if (total) total.textContent = issues.length;
+  if (reported) reported.textContent = issues.filter((i) => i.status === 'Reported').length;
+  if (progress) progress.textContent = issues.filter((i) => i.status === 'In Progress').length;
+  if (resolved) resolved.textContent = issues.filter((i) => i.status === 'Resolved').length;
+}
+
+async function updateStatus(id, status, button) {
+  button.disabled = true;
+  showMessage('');
   try {
-    const response = await fetch('/api/student/issues');
+    const response = await fetch(`/api/admin/issues/${encodeURIComponent(id)}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || 'Could not update status.');
+    showMessage('Issue status updated.', 'success');
+    await loadIssues();
+  } catch (error) {
+    showMessage(error.message || 'Could not update status.');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function loadIssues() {
+  const loadingText = pageRole === 'admin' ? 'Loading issues…' : 'Loading your reports…';
+  issueList.replaceChildren(element('p', 'muted', loadingText));
+  try {
+    const endpoint = pageRole === 'admin' ? '/api/admin/issues' : '/api/student/issues';
+    const response = await fetch(endpoint);
     if (response.status === 401) {
       window.location.replace('/');
       return;
     }
     const issues = await response.json();
-    if (!response.ok) throw new Error(issues.message || 'Could not load your reports.');
+    if (!response.ok) throw new Error(issues.message || (pageRole === 'admin' ? 'Could not load issues.' : 'Could not load your reports.'));
     issueList.replaceChildren();
-    if (!issues.length) issueList.append(element('p', 'muted empty-state', 'You have not submitted any reports yet.'));
+    if (!issues.length) {
+      const emptyText = pageRole === 'admin' ? 'No issues have been reported yet.' : 'You have not submitted any reports yet.';
+      issueList.append(element('p', 'muted empty-state', emptyText));
+    }
     for (const issue of issues) issueList.append(makeIssueCard(issue));
+    if (pageRole === 'admin') updateStats(issues);
   } catch (error) {
-    issueList.replaceChildren(element('p', 'message error', error.message || 'Could not load your reports.'));
+    const defaultErr = pageRole === 'admin' ? 'Could not load issues.' : 'Could not load your reports.';
+    issueList.replaceChildren(element('p', 'message error', error.message || defaultErr));
   }
 }
 
@@ -100,48 +164,51 @@ function validateTextFields() {
   return issueForm.reportValidity();
 }
 
-for (const name of ['title', 'location', 'description']) {
-  issueForm.elements.namedItem(name).addEventListener('input', (event) => event.currentTarget.setCustomValidity(''));
+if (issueForm) {
+  for (const name of ['title', 'location', 'description']) {
+    const input = issueForm.elements.namedItem(name);
+    if (input) input.addEventListener('input', (event) => event.currentTarget.setCustomValidity(''));
+  }
+
+  issueForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!validateTextFields()) return;
+
+    const fileInput = issueForm.elements.namedItem('image');
+    const file = fileInput.files[0];
+    if (file && !allowedImageTypes.includes(file.type)) {
+      showMessage('Only JPEG, PNG, or WebP images are allowed.');
+      fileInput.focus();
+      return;
+    }
+    if (file && file.size > maximumImageSize) {
+      showMessage('Image must be 2 MB or smaller.');
+      fileInput.focus();
+      return;
+    }
+
+    const formData = new FormData(issueForm);
+    for (const name of ['title', 'category', 'location', 'description']) {
+      formData.set(name, issueForm.elements.namedItem(name).value.trim());
+    }
+
+    const button = issueForm.querySelector('button[type="submit"]');
+    button.disabled = true;
+    showMessage('');
+    try {
+      const response = await fetch('/api/student/issues', { method: 'POST', body: formData });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Could not submit your report.');
+      issueForm.reset();
+      showMessage('Your report has been submitted.', 'success');
+      await loadIssues();
+    } catch (error) {
+      showMessage(error.message || 'Could not submit your report.');
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
-
-issueForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  if (!validateTextFields()) return;
-
-  const fileInput = issueForm.elements.namedItem('image');
-  const file = fileInput.files[0];
-  if (file && !allowedImageTypes.includes(file.type)) {
-    showMessage('Only JPEG, PNG, or WebP images are allowed.');
-    fileInput.focus();
-    return;
-  }
-  if (file && file.size > maximumImageSize) {
-    showMessage('Image must be 2 MB or smaller.');
-    fileInput.focus();
-    return;
-  }
-
-  const formData = new FormData(issueForm);
-  for (const name of ['title', 'category', 'location', 'description']) {
-    formData.set(name, issueForm.elements.namedItem(name).value.trim());
-  }
-
-  const button = issueForm.querySelector('button[type="submit"]');
-  button.disabled = true;
-  showMessage('');
-  try {
-    const response = await fetch('/api/student/issues', { method: 'POST', body: formData });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.message || 'Could not submit your report.');
-    issueForm.reset();
-    showMessage('Your report has been submitted.', 'success');
-    await loadIssues();
-  } catch (error) {
-    showMessage(error.message || 'Could not submit your report.');
-  } finally {
-    button.disabled = false;
-  }
-});
 
 checkAccess().then((allowed) => {
   if (allowed) return loadIssues();
